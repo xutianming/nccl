@@ -331,6 +331,7 @@ ncclResult_t ncclSocketGetTask(struct ncclSocketComm* comm, int op, void* data, 
   struct ncclSocketTaskQueue* queue = &res->threadTaskQueue;
   // create helper threads and prepare per-thread task queue
   if (queue->tasks == NULL) {
+    INFO(NCCL_COLL, "Create thread with tid: %d", tid);
     NCCLCHECK(ncclCalloc(&queue->tasks, MAX_QUEUE_LEN));
     queue->next = 0;
     res->comm = comm;
@@ -368,6 +369,7 @@ ncclResult_t ncclSocketTest(void* request, int* done, int* size) {
     return ncclInternalError;
   }
   if (r->used == 1) { /* try to send/recv size */
+    // INFO(NCCL_COLL, "Try to send/recv size");
     int data = r->size;
     int offset = 0;
     NCCLCHECK(socketProgress(r->op, r->ctrlFd, &data, sizeof(int), &offset));
@@ -396,8 +398,10 @@ ncclResult_t ncclSocketTest(void* request, int* done, int* size) {
       }
     }
     r->nSubs = i;
+    // INFO(NCCL_COLL, "Splited into %d %s tasks, each %d size", r->nSubs, r->op == 0 ? "send":"recv", r->size);
   }
   if (r->used == 2) { // already exchanged size
+    // INFO(NCCL_COLL, "Already exchanged size");
     if (r->nSubs > 0) {
       int nCompleted = 0;
       for (int i=0; i<r->nSubs; i++) {

@@ -424,6 +424,7 @@ static ncclResult_t socketProgressOpt(int op, int fd, void* ptr, int size, int* 
 }
 
 static ncclResult_t socketProgress(int op, int fd, void* ptr, int size, int* offset) {
+  // INFO(NCCL_COLL, "%s task, size %d", op == NCCL_SOCKET_RECV ? "recv" : "send", size);
   return socketProgressOpt(op, fd, ptr, size, offset, 0);
 }
 

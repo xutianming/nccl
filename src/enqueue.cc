@@ -99,7 +99,7 @@ ncclResult_t setupLaunch(struct ncclComm* comm, struct cudaLaunchParams* params)
   memcpy(&comm->args, coll, sizeof(struct ncclColl));
   // As we pass that coll directly, we can free it immediately.
   coll->active = 0;
-
+  INFO(NCCL_COLL, "coll func Index: %d", coll->funcIndex);
   params->func = ncclKerns[coll->funcIndex];
   return ncclSuccess;
 }
@@ -191,7 +191,42 @@ ncclResult_t ncclBarrierEnqueueWait(ncclComm_t comm) {
   NCCLCHECK(ncclCpuBarrierOut(comm));
 
   struct cudaLaunchParams *params = comm->myParams;
+  {
+    // tmxu: For debug
+    struct CollectiveArgs* args = (struct CollectiveArgs*)(*params->args);
+    INFO(NCCL_COLL, "nthreads %d, task size %d channels %d", args->nThreads, args->N, args->nChannels);
+    int nthreads = args->nThreads-32;
+    int bid = args->bid;
+    // struct ncclDevComm* comm = args->comm;
+    struct ncclChannel* channel = comm->channels;
+    // struct ncclRing* ring = &channel->ring;
+    ssize_t size = args->N;
+    int nranks = comm->nRanks;
+    int stepSize = channel->buffSize / (sizeof(float)*8);
+
+    int chunkSize = stepSize * 4;
+    ssize_t loopSize = args->nChannels*(ssize_t)chunkSize;
+    ssize_t gridOffset = 0;
+    int realChunkSize = std::min(chunkSize, (int)((size-gridOffset + nranks*args->nChannels-1)/nranks*args->nChannels));
+    int align = nthreads*sizeof(uint64_t)/sizeof(float);
+    realChunkSize = (realChunkSize + align - 1) / align * align;
+    ssize_t chunkOffset = gridOffset + bid*nranks*realChunkSize;
+
+    ssize_t offset;
+    int nelem;
+    int slice;
+
+    // slice = ring->devUserRanks[nranks-1];
+    slice = 0;
+    offset = chunkOffset + slice * realChunkSize;
+    nelem = std::min(realChunkSize, (int)(size-offset));
+    INFO(NCCL_COLL, "nthreads %d, bid %d, nranks %d", nthreads, bid, nranks);
+    INFO(NCCL_COLL, "stepSize %d, chunkSize %d, loopSize %d", stepSize, chunkSize, loopSize);
+    INFO(NCCL_COLL, "realChunkSize %d, chunkOffset %d, offset %d", realChunkSize, chunkOffset, offset);
+    INFO(NCCL_COLL, "nelem %d, slice %d, channel buffer size %d", nelem, slice, channel->buffSize);
+  }
   if (comm->launchMode == ncclComm::PARALLEL) {
+    INFO(NCCL_COLL, "grid dim x : %d, y : %d, z : %d, block dim x: %d, y: %d, z : %d", params->gridDim.x, params->gridDim.y, params->gridDim.z, params->blockDim.x, params->blockDim.y, params->blockDim.z);
     CUDACHECK(cudaLaunchKernel(params->func, params->gridDim, params->blockDim, params->args, params->sharedMem, params->stream));
   }
   // Start the network proxies as soon as the kernel has been launched. We can't
@@ -261,6 +296,7 @@ static ncclResult_t getAlgoInfo(struct ncclInfo* info) {
   }
   //if (comm->rank == 0) INFO(NCCL_COLL, "%ld Bytes -> Algo %d proto %d time %d", info->nBytes, info->algorithm, info->protocol, minTime);
   TRACE(NCCL_COLL, "%ld Bytes -> Algo %d proto %d time %f", info->nBytes, info->algorithm, info->protocol, minTime);
+  INFO(NCCL_COLL, "%ld Bytes -> Algo %d proto %d time %f", info->nBytes, info->algorithm, info->protocol, minTime);
 
   int nc = comm->nChannels;
   int nt = comm->maxThreads[info->protocol];
@@ -388,6 +424,7 @@ static ncclResult_t saveKernel(struct ncclInfo* info) {
   NCCLCHECK(computeColl(info, &coll, &proxyArgs));
 
   info->comm->myParams->blockDim.x = std::max<unsigned>(info->comm->myParams->blockDim.x, coll.args.nThreads);
+  INFO(NCCL_COLL, "saveKernel blockDim.x: %d, nthreads %d", info->comm->myParams->blockDim.x, coll.args.nThreads);
   if (info->comm->userStreamSet == false) {
     info->comm->userStream = info->stream;
     info->comm->userStreamSet = true;
@@ -395,6 +432,7 @@ static ncclResult_t saveKernel(struct ncclInfo* info) {
     WARN("Error : mixing different streams within a group call is not supported.");
     return ncclInvalidUsage;
   }
+  INFO(NCCL_COLL, "saveKernel nchannels: %d", coll.args.nChannels);
   for (int bid=0; bid<coll.args.nChannels; bid++) {
     struct ncclChannel* channel = info->comm->channels+(info->comm->myParams->gridDim.x % info->comm->nChannels);
 

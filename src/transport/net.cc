@@ -107,6 +107,7 @@ ncclResult_t netSendSetup(struct ncclTopoSystem* topo, struct ncclTopoGraph* gra
   NCCLCHECK(ncclCudaHostAlloc((void**)&resources->hostRecvMem, (void**)&resources->devHostRecvMem, recvSize));
   resources->buffSize = buffSize;
 
+  INFO(NCCL_COLL, "netSendSetup fifisize index0 %d", resources->hostRecvMem->sizesFifo[0]);
   INFO(NCCL_INIT|NCCL_NET,"Ring %02d : %d[%lx] -> %d[%lx] [send] via NET/%s/%d%s", channelId, myInfo->rank, myInfo->busId, peerInfo->rank, peerInfo->busId, ncclNetName(), resources->netDev,
       resources->useGdr ? "/GDRDMA" : "");
   return ncclSuccess;
@@ -129,7 +130,7 @@ ncclResult_t netRecvSetup(struct ncclTopoSystem* topo, struct ncclTopoGraph* gra
   }
   NCCLCHECK(ncclCudaHostAlloc((void**)&resources->hostRecvMem, (void**)&resources->devHostRecvMem, recvSize));
   resources->buffSize = buffSize;
-
+  INFO(NCCL_COLL, "netRecvSetup fifisize index0 %d", resources->hostRecvMem->sizesFifo[0]);
   INFO(NCCL_INIT|NCCL_NET,"Ring %02d : %d[%lx] -> %d[%lx] [receive] via NET/%s/%d%s", channelId, peerInfo->rank, peerInfo->busId, myInfo->rank, myInfo->busId, ncclNetName(), resources->netDev,
       resources->useGdr ? "/GDRDMA" : "");
   struct netConnectInfo* info = (struct netConnectInfo*) connectInfo;
@@ -229,6 +230,7 @@ ncclResult_t netRecvFree(void* transportResources) {
 }
 
 ncclResult_t netSendProxy(struct ncclProxyArgs* args) {
+  // INFO(NCCL_COLL, "netSendProxy protocol %d", args->protocol);
   struct netSendResources* resources = (struct netSendResources*) (args->connector->transportResources);
   if (args->state == ncclProxyOpReady) {
     // Update opCount
@@ -310,6 +312,7 @@ ncclResult_t netSendProxy(struct ncclProxyArgs* args) {
           // Send through network
           int buffSlot = args->tail%NCCL_STEPS;
           if (sizesFifo[buffSlot] != -1) {
+            // INFO(NCCL_COLL, "NetIsend size %d", sizesFifo[buffSlot]);
             NCCLCHECK(ncclNetIsend(resources->netSendComm, localMem->buff+buffSlot*stepSize, sizesFifo[buffSlot], resources->mhandle, args->requests+buffSlot));
             if (args->requests[buffSlot] != NULL) {
               sizesFifo[buffSlot] = -1;
@@ -342,6 +345,7 @@ ncclResult_t netSendProxy(struct ncclProxyArgs* args) {
 }
 
 ncclResult_t netRecvProxy(struct ncclProxyArgs* args) {
+  // INFO(NCCL_COLL, "netRecvProxy protocol: %d", args->protocol);
   struct netRecvResources* resources = (struct netRecvResources*) (args->connector->transportResources);
   if (args->state == ncclProxyOpReady) {
     // Update opCount
@@ -365,6 +369,7 @@ ncclResult_t netRecvProxy(struct ncclProxyArgs* args) {
       if ((args->tail < args->head + NCCL_STEPS) && (args->tail < *sendHead + NCCL_STEPS) && (args->tail < args->end)) {
         int buffSlot = args->tail%NCCL_STEPS;
         int sliceSize = stepSize * args->sliceSteps;
+        // INFO(NCCL_COLL, "NetIrecv size %d", sliceSize);
         NCCLCHECK(ncclNetIrecv(resources->netRecvComm, localBuff+buffSlot*stepSize, sliceSize, mhandle, args->requests+buffSlot));
         if (args->requests[buffSlot] != NULL) {
           args->tail += args->sliceSteps;

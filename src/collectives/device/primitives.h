@@ -168,7 +168,7 @@ class ncclPrimitives {
     int offset = 0;
     int sliceSize = stepSize*SLICESTEPS;
     int dataSize = max(DIVUP(nelem, 16*SLICESPERCHUNK)*16, sliceSize/32);
-
+    printf("data size %d\n", dataSize);
     const T* srcs[RECV*NRECV+SRC];
     srcs[0] = SRC ? srcPtr : directRecvPtr<DIRECTRECV>(0, directOffset);
     if (RECV) {
